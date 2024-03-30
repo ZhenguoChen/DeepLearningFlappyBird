@@ -18,11 +18,14 @@ EXPLORE = 2000000. # frames over which to anneal epsilon
 FINAL_EPSILON = 0.0001 # final value of epsilon
 INITIAL_EPSILON = 0.0001 # starting value of epsilon
 REPLAY_MEMORY = 50000 # number of previous transitions to remember
+MAX_EPOCHS = 1000000
 BATCH = 32 # size of minibatch
 FRAME_PER_ACTION = 1
 
+tf.compat.v1.disable_eager_execution()
+
 def weight_variable(shape):
-    initial = tf.truncated_normal(shape, stddev = 0.01)
+    initial = tf.random.truncated_normal(shape, stddev = 0.01)
     return tf.Variable(initial)
 
 def bias_variable(shape):
@@ -30,10 +33,10 @@ def bias_variable(shape):
     return tf.Variable(initial)
 
 def conv2d(x, W, stride):
-    return tf.nn.conv2d(x, W, strides = [1, stride, stride, 1], padding = "SAME")
+    return tf.nn.conv2d(x, filters=W, strides = [1, stride, stride, 1], padding = "SAME")
 
 def max_pool_2x2(x):
-    return tf.nn.max_pool(x, ksize = [1, 2, 2, 1], strides = [1, 2, 2, 1], padding = "SAME")
+    return tf.nn.max_pool2d(input=x, ksize = [1, 2, 2, 1], strides = [1, 2, 2, 1], padding = "SAME")
 
 def createNetwork():
     # network weights
@@ -53,7 +56,7 @@ def createNetwork():
     b_fc2 = bias_variable([ACTIONS])
 
     # input layer
-    s = tf.placeholder("float", [None, 80, 80, 4])
+    s = tf.compat.v1.placeholder("float", [None, 80, 80, 4])
 
     # hidden layers
     h_conv1 = tf.nn.relu(conv2d(s, W_conv1, 4) + b_conv1)
@@ -73,15 +76,15 @@ def createNetwork():
     # readout layer
     readout = tf.matmul(h_fc1, W_fc2) + b_fc2
 
-    return s, readout
+    return s, readout, h_fc1
 
-def trainNetwork(s, readout, sess):
+def trainNetwork(s, readout, h_fc1, sess):
     # define the cost function
-    a = tf.placeholder("float", [None, ACTIONS])
-    y = tf.placeholder("float", [None])
-    readout_action = tf.reduce_sum(tf.multiply(readout, a), reduction_indices=1)
+    a = tf.compat.v1.placeholder("float", [None, ACTIONS])
+    y = tf.compat.v1.placeholder("float", [None])
+    readout_action = tf.reduce_sum(tf.multiply(readout, a), axis=1)
     cost = tf.reduce_mean(tf.square(y - readout_action))
-    train_step = tf.train.AdamOptimizer(1e-6).minimize(cost)
+    train_step = tf.compat.v1.train.AdamOptimizer(1e-6).minimize(cost)
 
     # open up a game state to communicate with emulator
     game_state = game.GameState()
@@ -102,8 +105,8 @@ def trainNetwork(s, readout, sess):
     s_t = np.stack((x_t, x_t, x_t, x_t), axis=2)
 
     # saving and loading networks
-    saver = tf.train.Saver()
-    sess.run(tf.initialize_all_variables())
+    saver = tf.compat.v1.train.Saver()
+    sess.run(tf.compat.v1.initialize_all_variables())
     checkpoint = tf.train.get_checkpoint_state("saved_networks")
     if checkpoint and checkpoint.model_checkpoint_path:
         saver.restore(sess, checkpoint.model_checkpoint_path)
@@ -202,11 +205,13 @@ def trainNetwork(s, readout, sess):
             h_file.write(",".join([str(x) for x in h_fc1.eval(feed_dict={s:[s_t]})[0]]) + '\n')
             cv2.imwrite("logs_tetris/frame" + str(t) + ".png", x_t1)
         '''
+        if t > MAX_EPOCHS:
+            break
 
 def playGame():
-    sess = tf.InteractiveSession(config=tf.ConfigProto(log_device_placement=True))
-    s, readout = createNetwork()
-    trainNetwork(s, readout, sess)
+    sess = tf.compat.v1.InteractiveSession(config=tf.compat.v1.ConfigProto(log_device_placement=True))
+    s, readout, h_fc1 = createNetwork()
+    trainNetwork(s, readout, h_fc1, sess)
 
 def main():
     playGame()
