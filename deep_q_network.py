@@ -28,22 +28,46 @@ if MODE == "TRAIN":
     FINAL_EPSILON = 0.0001
     INITIAL_EPSILON = 0.1
 else:
-    OBSERVE = 100000. # timesteps to observe before training
-    EXPLORE = 2000000. # frames over which to anneal epsilon
-    FINAL_EPSILON = 0.0001 # final value of epsilon
-    INITIAL_EPSILON = 0.0001 # starting value of epsilon
+    OBSERVE = 100000.0  # timesteps to observe before training
+    EXPLORE = 2000000.0  # frames over which to anneal epsilon
+    FINAL_EPSILON = 0.0001  # final value of epsilon
+    INITIAL_EPSILON = 0.0001  # starting value of epsilon
 
-tf.compat.v1.disable_eager_execution()
+# tf.compat.v1.disable_eager_execution()
+variables = list()
 
 
 def weight_variable(shape):
     initial = tf.random.truncated_normal(shape, stddev=0.01)
-    return tf.Variable(initial)
+    weights = tf.Variable(initial)
+    variables.append(weights)
+    return weights
 
 
 def bias_variable(shape):
     initial = tf.constant(0.01, shape=shape)
-    return tf.Variable(initial)
+    bias = tf.Variable(initial)
+    variables.append(bias)
+    return bias
+
+
+# TODO check how saver save and load weights
+# there must be a logic to tell which variable has which checkpoint weight
+# network weights
+W_conv1 = weight_variable([8, 8, 4, 32])
+b_conv1 = bias_variable([32])
+
+W_conv2 = weight_variable([4, 4, 32, 64])
+b_conv2 = bias_variable([64])
+
+W_conv3 = weight_variable([3, 3, 64, 64])
+b_conv3 = bias_variable([64])
+
+W_fc1 = weight_variable([1600, 512])
+b_fc1 = bias_variable([512])
+
+W_fc2 = weight_variable([512, ACTIONS])
+b_fc2 = bias_variable([ACTIONS])
 
 
 def conv2d(x, W, stride):
@@ -56,28 +80,12 @@ def max_pool_2x2(x):
     )
 
 
-def createNetwork():
-    # network weights
-    W_conv1 = weight_variable([8, 8, 4, 32])
-    b_conv1 = bias_variable([32])
-
-    W_conv2 = weight_variable([4, 4, 32, 64])
-    b_conv2 = bias_variable([64])
-
-    W_conv3 = weight_variable([3, 3, 64, 64])
-    b_conv3 = bias_variable([64])
-
-    W_fc1 = weight_variable([1600, 512])
-    b_fc1 = bias_variable([512])
-
-    W_fc2 = weight_variable([512, ACTIONS])
-    b_fc2 = bias_variable([ACTIONS])
-
+def model(x):
     # input layer
-    s = tf.compat.v1.placeholder("float", [None, 80, 80, 4])
+    # s = tf.compat.v1.placeholder("float", [None, 80, 80, 4])
 
     # hidden layers
-    h_conv1 = tf.nn.relu(conv2d(s, W_conv1, 4) + b_conv1)
+    h_conv1 = tf.nn.relu(conv2d(x, W_conv1, 4) + b_conv1)
     h_pool1 = max_pool_2x2(h_conv1)
 
     h_conv2 = tf.nn.relu(conv2d(h_pool1, W_conv2, 2) + b_conv2)
@@ -94,16 +102,29 @@ def createNetwork():
     # readout layer
     readout = tf.matmul(h_fc1, W_fc2) + b_fc2
 
-    return s, readout
+    return readout
 
 
-def trainNetwork(s, readout, sess):
+def loss(pred, target):
+    action = tf.Variable([None, ACTIONS])
+    readout_action = tf.reduce_sum(tf.multiply(pred, action), axis=1)
+    cost = tf.reduce_mean(tf.square(target - readout_action))
+    return cost
+
+
+def trainNetwork():
     # define the cost function
-    a = tf.compat.v1.placeholder("float", [None, ACTIONS])
-    y = tf.compat.v1.placeholder("float", [None])
-    readout_action = tf.reduce_sum(tf.multiply(readout, a), axis=1)
-    cost = tf.reduce_mean(tf.square(y - readout_action))
-    train_step = tf.compat.v1.train.AdamOptimizer(1e-6).minimize(cost)
+    # a = tf.compat.v1.placeholder("float", [None, ACTIONS])
+    # y = tf.compat.v1.placeholder("float", [None])
+    # train_step = tf.compat.v1.train.AdamOptimizer(1e-6).minimize(cost)
+
+    def train_step(model, inputs, outputs):
+        with tf.GradientTape() as tape:
+            current_loss = loss(model(inputs), outputs)
+        grads = tape.gradient(current_loss, variables)
+        optimizer.apply_gradients(zip(grads, variables))
+
+    optimizer = tf.optimizers.Adam(1e-6)
 
     # open up a game state to communicate with emulator
     game_state = game.GameState()
@@ -119,22 +140,37 @@ def trainNetwork(s, readout, sess):
     ret, x_t = cv2.threshold(x_t, 1, 255, cv2.THRESH_BINARY)
     s_t = np.stack((x_t, x_t, x_t, x_t), axis=2)
 
+    # map tf1 checkpoint to tf2
+    checkpoint = tf.train.Checkpoint(
+        vars={
+            "Variable": variables[0],
+            "Variable_1": variables[1],
+            "Variable_2": variables[2],
+            "Variable_3": variables[3],
+            "Variable_4": variables[4],
+            "Variable_5": variables[5],
+            "Variable_6": variables[6],
+            "Variable_7": variables[7],
+            "Variable_8": variables[8],
+            "Variable_9": variables[9],
+        }
+    )
+    checkpoint.restore("tf2_weights-1")
     # saving and loading networks
-    saver = tf.compat.v1.train.Saver()
-    sess.run(tf.compat.v1.initialize_all_variables())
-    checkpoint = tf.train.get_checkpoint_state("saved_networks")
-    if checkpoint and checkpoint.model_checkpoint_path:
-        saver.restore(sess, checkpoint.model_checkpoint_path)
-        print("Successfully loaded:", checkpoint.model_checkpoint_path)
-    else:
-        print("Could not find old network weights")
+    # saver = tf.compat.v1.train.Saver(var_list=variables)
+    # checkpoint = tf.train.get_checkpoint_state("saved_networks")
+    # if checkpoint and checkpoint.model_checkpoint_path:
+    #     saver.restore(sess, checkpoint.model_checkpoint_path)
+    #     print("Successfully loaded:", checkpoint.model_checkpoint_path)
+    # else:
+    #     print("Could not find old network weights")
 
     # start training
     epsilon = INITIAL_EPSILON
     t = 0
     while "flappy bird" != "angry bird":
         # choose an action epsilon greedily
-        readout_t = readout.eval(feed_dict={s: [s_t]})[0]
+        readout_t = model(tf.convert_to_tensor([s_t], dtype=tf.float32))[0]
         a_t = np.zeros([ACTIONS])
         action_index = 0
         if t % FRAME_PER_ACTION == 0:
@@ -177,7 +213,7 @@ def trainNetwork(s, readout, sess):
             s_j1_batch = [d[3] for d in minibatch]
 
             y_batch = []
-            readout_j1_batch = readout.eval(feed_dict={s: s_j1_batch})
+            readout_j1_batch = model(s_j1_batch)
             for i in range(0, len(minibatch)):
                 terminal = minibatch[i][4]
                 # if terminal, only equals reward
@@ -187,7 +223,7 @@ def trainNetwork(s, readout, sess):
                     y_batch.append(r_batch[i] + GAMMA * np.max(readout_j1_batch[i]))
 
             # perform gradient step
-            train_step.run(feed_dict={y: y_batch, a: a_batch, s: s_j_batch})
+            train_step(model, s_j_batch, y_batch)
 
         # update the old values
         s_t = s_t1
@@ -231,11 +267,11 @@ def trainNetwork(s, readout, sess):
 
 
 def playGame():
-    sess = tf.compat.v1.InteractiveSession(
-        config=tf.compat.v1.ConfigProto(log_device_placement=True)
-    )
-    s, readout = createNetwork()
-    trainNetwork(s, readout, sess)
+    # sess = tf.compat.v1.InteractiveSession(
+    #     config=tf.compat.v1.ConfigProto(log_device_placement=True)
+    # )
+    # s, readout = createNetwork()
+    trainNetwork()
 
 
 def main():
