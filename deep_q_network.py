@@ -81,6 +81,8 @@ def max_pool_2x2(x):
 
 
 def model(x):
+    if isinstance(x, list):
+        x = tf.convert_to_tensor(x, dtype=tf.float32)
     # input layer
     # s = tf.compat.v1.placeholder("float", [None, 80, 80, 4])
 
@@ -106,10 +108,30 @@ def model(x):
 
 
 def loss(pred, target):
-    action = tf.Variable([None, ACTIONS])
-    readout_action = tf.reduce_sum(tf.multiply(pred, action), axis=1)
+    # action = tf.Variable([None, ACTIONS])
+    readout_action = tf.reduce_sum(pred, axis=1)
     cost = tf.reduce_mean(tf.square(target - readout_action))
     return cost
+
+
+def load_pretrained_weights(weight_path):
+    """Load weights trained in tensorflow1.x."""
+    # map tf1 checkpoint to tf2
+    checkpoint = tf.train.Checkpoint(
+        vars={
+            "Variable": variables[0],
+            "Variable_1": variables[1],
+            "Variable_2": variables[2],
+            "Variable_3": variables[3],
+            "Variable_4": variables[4],
+            "Variable_5": variables[5],
+            "Variable_6": variables[6],
+            "Variable_7": variables[7],
+            "Variable_8": variables[8],
+            "Variable_9": variables[9],
+        }
+    )
+    return checkpoint.restore(weight_path)
 
 
 def trainNetwork():
@@ -118,9 +140,13 @@ def trainNetwork():
     # y = tf.compat.v1.placeholder("float", [None])
     # train_step = tf.compat.v1.train.AdamOptimizer(1e-6).minimize(cost)
 
-    def train_step(model, inputs, outputs):
+    def train_step(model, inputs, outputs, a_batch):
         with tf.GradientTape() as tape:
-            current_loss = loss(model(inputs), outputs)
+            predictions = tf.multiply(
+                tf.convert_to_tensor(model(inputs), dtype=tf.float32),
+                tf.convert_to_tensor(a_batch, dtype=tf.float32),
+            )
+            current_loss = loss(predictions, outputs)
         grads = tape.gradient(current_loss, variables)
         optimizer.apply_gradients(zip(grads, variables))
 
@@ -140,22 +166,11 @@ def trainNetwork():
     ret, x_t = cv2.threshold(x_t, 1, 255, cv2.THRESH_BINARY)
     s_t = np.stack((x_t, x_t, x_t, x_t), axis=2)
 
-    # map tf1 checkpoint to tf2
-    checkpoint = tf.train.Checkpoint(
-        vars={
-            "Variable": variables[0],
-            "Variable_1": variables[1],
-            "Variable_2": variables[2],
-            "Variable_3": variables[3],
-            "Variable_4": variables[4],
-            "Variable_5": variables[5],
-            "Variable_6": variables[6],
-            "Variable_7": variables[7],
-            "Variable_8": variables[8],
-            "Variable_9": variables[9],
-        }
-    )
-    checkpoint.restore("tf2_weights-1")
+    if MODE != "TRAIN":
+        checkpoint = load_pretrained_weights("tf2_weights-1")
+    else:
+        checkpoint = tf.train.Checkpoint(variables=variables)
+
     # saving and loading networks
     # saver = tf.compat.v1.train.Saver(var_list=variables)
     # checkpoint = tf.train.get_checkpoint_state("saved_networks")
@@ -170,17 +185,17 @@ def trainNetwork():
     t = 0
     while "flappy bird" != "angry bird":
         # choose an action epsilon greedily
-        readout_t = model(tf.convert_to_tensor([s_t], dtype=tf.float32))[0]
+        readout_t = model([s_t])[0]
         a_t = np.zeros([ACTIONS])
         action_index = 0
         if t % FRAME_PER_ACTION == 0:
             if random.random() <= epsilon:
                 print("----------Random Action----------")
                 action_index = random.randrange(ACTIONS)
-                a_t[random.randrange(ACTIONS)] = 1
+                # a_t[random.randrange(ACTIONS)] = 1
             else:
                 action_index = np.argmax(readout_t)
-                a_t[action_index] = 1
+            a_t[action_index] = 1
         else:
             a_t[0] = 1  # do nothing
 
@@ -223,7 +238,7 @@ def trainNetwork():
                     y_batch.append(r_batch[i] + GAMMA * np.max(readout_j1_batch[i]))
 
             # perform gradient step
-            train_step(model, s_j_batch, y_batch)
+            train_step(model, s_j_batch, y_batch, a_batch)
 
         # update the old values
         s_t = s_t1
@@ -231,7 +246,8 @@ def trainNetwork():
 
         # save progress every 10000 iterations
         if t % 10000 == 0:
-            saver.save(sess, "saved_networks/" + GAME + "-dqn", global_step=t)
+            # saver.save(sess, "saved_networks/" + GAME + "-dqn", global_step=t)
+            checkpoint.save(f"checkpoints/{GAME}")
 
         # print info
         state = ""
@@ -255,13 +271,6 @@ def trainNetwork():
             r_t,
             "/ Q_MAX %e" % np.max(readout_t),
         )
-        # write info to files
-        """
-        if t % 10000 <= 100:
-            a_file.write(",".join([str(x) for x in readout_t]) + '\n')
-            h_file.write(",".join([str(x) for x in h_fc1.eval(feed_dict={s:[s_t]})[0]]) + '\n')
-            cv2.imwrite("logs_tetris/frame" + str(t) + ".png", x_t1)
-        """
         if t > MAX_EPOCHS:
             break
 
