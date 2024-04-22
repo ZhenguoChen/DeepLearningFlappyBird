@@ -33,7 +33,6 @@ else:
     FINAL_EPSILON = 0.0001  # final value of epsilon
     INITIAL_EPSILON = 0.0001  # starting value of epsilon
 
-# tf.compat.v1.disable_eager_execution()
 variables = list()
 
 
@@ -51,8 +50,6 @@ def bias_variable(shape):
     return bias
 
 
-# TODO check how saver save and load weights
-# there must be a logic to tell which variable has which checkpoint weight
 # network weights
 W_conv1 = weight_variable([8, 8, 4, 32])
 b_conv1 = bias_variable([32])
@@ -83,8 +80,6 @@ def max_pool_2x2(x):
 def model(x):
     if isinstance(x, list):
         x = tf.convert_to_tensor(x, dtype=tf.float32)
-    # input layer
-    # s = tf.compat.v1.placeholder("float", [None, 80, 80, 4])
 
     # hidden layers
     h_conv1 = tf.nn.relu(conv2d(x, W_conv1, 4) + b_conv1)
@@ -108,7 +103,6 @@ def model(x):
 
 
 def loss(pred, target):
-    # action = tf.Variable([None, ACTIONS])
     readout_action = tf.reduce_sum(pred, axis=1)
     cost = tf.reduce_mean(tf.square(target - readout_action))
     return cost
@@ -135,11 +129,6 @@ def load_pretrained_weights(weight_path):
 
 
 def trainNetwork():
-    # define the cost function
-    # a = tf.compat.v1.placeholder("float", [None, ACTIONS])
-    # y = tf.compat.v1.placeholder("float", [None])
-    # train_step = tf.compat.v1.train.AdamOptimizer(1e-6).minimize(cost)
-
     def train_step(model, inputs, outputs, a_batch):
         with tf.GradientTape() as tape:
             predictions = tf.multiply(
@@ -171,15 +160,6 @@ def trainNetwork():
     else:
         checkpoint = tf.train.Checkpoint(variables=variables)
 
-    # saving and loading networks
-    # saver = tf.compat.v1.train.Saver(var_list=variables)
-    # checkpoint = tf.train.get_checkpoint_state("saved_networks")
-    # if checkpoint and checkpoint.model_checkpoint_path:
-    #     saver.restore(sess, checkpoint.model_checkpoint_path)
-    #     print("Successfully loaded:", checkpoint.model_checkpoint_path)
-    # else:
-    #     print("Could not find old network weights")
-
     # start training
     epsilon = INITIAL_EPSILON
     t = 0
@@ -192,7 +172,6 @@ def trainNetwork():
             if random.random() <= epsilon:
                 print("----------Random Action----------")
                 action_index = random.randrange(ACTIONS)
-                # a_t[random.randrange(ACTIONS)] = 1
             else:
                 action_index = np.argmax(readout_t)
             a_t[action_index] = 1
@@ -246,7 +225,6 @@ def trainNetwork():
 
         # save progress every 10000 iterations
         if t % 10000 == 0:
-            # saver.save(sess, "saved_networks/" + GAME + "-dqn", global_step=t)
             checkpoint.save(f"checkpoints/{GAME}")
 
         # print info
@@ -276,10 +254,6 @@ def trainNetwork():
 
 
 def playGame():
-    # sess = tf.compat.v1.InteractiveSession(
-    #     config=tf.compat.v1.ConfigProto(log_device_placement=True)
-    # )
-    # s, readout = createNetwork()
     trainNetwork()
 
 
